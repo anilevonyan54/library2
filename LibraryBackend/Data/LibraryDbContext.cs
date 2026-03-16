@@ -58,9 +58,42 @@ public class LibraryDbContext : DbContext
         var now = DateTime.UtcNow;
 
         modelBuilder.Entity<User>().HasData(
-            new User { Id = 1, Email = "admin@library.com", Name = "Admin", PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"), Role = "admin", CreatedAt = now },
-            new User { Id = 2, Email = "alice@example.com", Name = "Alice", PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password1!"), Role = "user", CreatedAt = now },
-            new User { Id = 3, Email = "bob@example.com", Name = "Bob", PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password1!"), Role = "user", CreatedAt = now }
+            new User
+            {
+                Id = 1,
+                Email = "admin@library.com",
+                Name = "Main Admin",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
+                Role = "admin",
+                AdminLevel = 2,
+                RequestedRole = "admin",
+                AdminRequestStatus = "approved",
+                CreatedAt = now
+            },
+            new User
+            {
+                Id = 2,
+                Email = "alice@example.com",
+                Name = "Alice",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password1!"),
+                Role = "user",
+                AdminLevel = 0,
+                RequestedRole = "user",
+                AdminRequestStatus = "none",
+                CreatedAt = now
+            },
+            new User
+            {
+                Id = 3,
+                Email = "bob@example.com",
+                Name = "Bob",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password1!"),
+                Role = "user",
+                AdminLevel = 0,
+                RequestedRole = "user",
+                AdminRequestStatus = "none",
+                CreatedAt = now
+            }
         );
 
         modelBuilder.Entity<Book>().HasData(
@@ -98,7 +131,7 @@ public class LibraryDbContext : DbContext
                 Id = 1,
                 UserId = 3,
                 BookId = 1,
-                Status = "queued",
+                Status = "pending",
                 QueuePosition = 1,
                 RequestedAt = now.AddDays(-1),
                 PickupDeadline = null

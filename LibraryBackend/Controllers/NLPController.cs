@@ -1,6 +1,7 @@
 using LibraryBackend.Data;
 using LibraryBackend.DTOs;
 using LibraryBackend.ML;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -39,6 +40,51 @@ public class NLPController : ControllerBase
         var allBookIds = await _db.Books.Select(b => b.Id).ToListAsync();
         var result = _nlp.RecommendBooks(req.UserId.Value, allBookIds);
         return result;
+    }
+
+    [HttpGet("recommendations/me")]
+    [Authorize]
+    public async Task<IActionResult> GetMyRecommendations()
+    {
+        var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(userIdClaim)) return Unauthorized();
+        var userId = int.Parse(userIdClaim);
+
+        // Simple “taste” model based on past loans + reviews.
+        var historyBookIds = await _db.Loans
+            .Where(l => l.UserId == userId)
+            .Select(l => l.BookId)
+            .ToListAsync();
+
+        var reviewedBookIds = await _db.Reviews
+            .Where(r => r.UserId == userId && r.Rating >= 4)
+            .Select(r => r.BookId)
+            .ToListAsync();
+
+        var likedIds = historyBookIds.Concat(reviewedBookIds).Distinct().ToList();
+
+        var likedBooks = await _db.Books
+            .Where(b => likedIds.Contains(b.Id))
+            .ToListAsync();
+
+        var likedGenres = likedBooks
+            .Select(b => b.Genre)
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .GroupBy(g => g.ToLower())
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Key)
+            .Take(3)
+            .ToList();
+
+        var recs = await _db.Books
+            .Where(b => !likedIds.Contains(b.Id))
+            .OrderByDescending(b => likedGenres.Contains(b.Genre.ToLower()) ? 1 : 0)
+            .ThenByDescending(b => b.AvailableCopies)
+            .ThenByDescending(b => b.CreatedAt)
+            .Take(12)
+            .ToListAsync();
+
+        return Ok(recs);
     }
 }
 

@@ -1,55 +1,98 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Filter, CheckCircle, XCircle, Eye, Clock, Sparkles } from "lucide-react";
-import { mockReservations, Reservation } from "@/app/data/mock-data";
 import { toast } from "sonner";
+import { apiFetch } from "@/app/api/client";
+import { useAuth } from "@/app/context/auth-context";
 
 export function AdminRequests() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [reservations, setReservations] = useState(mockReservations);
+  const [mode, setMode] = useState<"reservations" | "adminRequests">("reservations");
+  const [reservations, setReservations] = useState<any[]>([]);
+  const [adminRequests, setAdminRequests] = useState<any[]>([]);
+  const { token, currentUser } = useAuth();
 
-  const filteredRequests =
-    statusFilter === "all"
-      ? reservations
-      : reservations.filter((r) => r.status === statusFilter);
+  const canSeeAdminRequests = useMemo(() => currentUser?.email === "admin@library.com", [currentUser?.email]);
 
-  const handleApprove = (id: string) => {
-    setReservations((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              status: "ready" as const,
-              pickupDeadline: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-            }
-          : r
-      )
-    );
-    toast.success("Request approved! User notified.");
+  useEffect(() => {
+    (async () => {
+      try {
+        const pending = await apiFetch<any[]>("/api/admin/reservations/pending", {
+          token: token || undefined,
+        });
+        setReservations(pending);
+      } catch {
+        setReservations([]);
+      }
+    })();
+  }, [token]);
+
+  useEffect(() => {
+    if (!canSeeAdminRequests) return;
+    (async () => {
+      try {
+        const pending = await apiFetch<any[]>("/api/admin/admin-requests/pending", {
+          token: token || undefined,
+        });
+        setAdminRequests(pending);
+      } catch {
+        setAdminRequests([]);
+      }
+    })();
+  }, [token, canSeeAdminRequests]);
+
+  const filteredReservations =
+    statusFilter === "all" ? reservations : reservations.filter((r) => r.status === statusFilter);
+
+  const handleApprove = async (id: number) => {
+    try {
+      await apiFetch(`/api/reservations/${id}/approve`, {
+        method: "POST",
+        token: token || undefined,
+      });
+      setReservations((prev) => prev.filter((r) => r.id !== id));
+      toast.success("Request approved! User will see it in approved reservations.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to approve");
+    }
   };
 
-  const handleDeny = (id: string) => {
-    setReservations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: "denied" as const } : r))
-    );
-    toast.info("Request denied.");
+  const handleDeny = async (id: number) => {
+    try {
+      await apiFetch(`/api/reservations/${id}/deny`, {
+        method: "POST",
+        token: token || undefined,
+      });
+      setReservations((prev) => prev.filter((r) => r.id !== id));
+      toast.info("Request denied.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to deny");
+    }
   };
 
-  const handleConfirmPickup = (id: string) => {
-    toast.success("Loan created! Book checked out.");
-    setReservations((prev) => prev.filter((r) => r.id !== id));
+  const handleConfirmPickup = async (id: number) => {
+    try {
+      await apiFetch(`/api/reservations/${id}/confirm-pickup`, {
+        method: "POST",
+        token: token || undefined,
+      });
+      toast.success("Loan created! Book checked out.");
+      setReservations((prev) => prev.filter((r) => r.id !== id));
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to confirm pickup");
+    }
   };
 
-  const getStatusBadge = (status: Reservation["status"]) => {
+  const getStatusBadge = (status: string) => {
     const styles = {
       pending: { bg: "rgba(245, 158, 11, 0.2)", text: "#fbbf24", border: "rgba(245, 158, 11, 0.3)" },
       approved: { bg: "rgba(59, 130, 246, 0.2)", text: "#60a5fa", border: "rgba(59, 130, 246, 0.3)" },
-      ready: { bg: "rgba(34, 197, 94, 0.2)", text: "#4ade80", border: "rgba(34, 197, 94, 0.3)" },
+      fulfilled: { bg: "rgba(34, 197, 94, 0.2)", text: "#4ade80", border: "rgba(34, 197, 94, 0.3)" },
       denied: { bg: "rgba(239, 68, 68, 0.2)", text: "#f87171", border: "rgba(239, 68, 68, 0.3)" },
       expired: { bg: "rgba(156, 163, 175, 0.2)", text: "#9ca3af", border: "rgba(156, 163, 175, 0.3)" },
     };
 
-    const style = styles[status];
+    const style = (styles as any)[status] || styles.pending;
 
     return (
       <span
@@ -95,13 +138,43 @@ export function AdminRequests() {
           border: '1px solid rgba(201, 169, 97, 0.4)',
         }}
       >
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex gap-2">
+            <motion.button
+              onClick={() => setMode("reservations")}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.98 }}
+              className={`px-4 py-2 rounded-lg text-sm transition-all ${
+                mode === "reservations" ? "text-gray-900 shadow-lg" : "text-purple-100 hover:text-white"
+              }`}
+              style={mode === "reservations" ? {
+                background: 'linear-gradient(135deg, #C9A961 0%, #D4AF37 100%)',
+              } : { background: 'rgba(244, 232, 208, 0.1)' }}
+            >
+              Reservation requests
+            </motion.button>
+            {canSeeAdminRequests && (
+              <motion.button
+                onClick={() => setMode("adminRequests")}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.98 }}
+                className={`px-4 py-2 rounded-lg text-sm transition-all ${
+                  mode === "adminRequests" ? "text-gray-900 shadow-lg" : "text-purple-100 hover:text-white"
+                }`}
+                style={mode === "adminRequests" ? {
+                  background: 'linear-gradient(135deg, #C9A961 0%, #D4AF37 100%)',
+                } : { background: 'rgba(244, 232, 208, 0.1)' }}
+              >
+                Admin signup requests
+              </motion.button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <Filter size={20} className="text-yellow-300" />
             <span className="text-sm font-medium text-yellow-200">Status:</span>
           </div>
           <div className="flex gap-2">
-            {["all", "pending", "ready", "approved", "denied", "expired"].map(
+            {["all", "pending", "approved", "fulfilled", "denied", "expired"].map(
               (status) => (
                 <motion.button
                   key={status}
@@ -136,7 +209,81 @@ export function AdminRequests() {
         }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full">
+          {mode === "adminRequests" ? (
+            <table className="w-full">
+              <thead
+                className="border-b"
+                style={{
+                  background: "rgba(139, 107, 71, 0.2)",
+                  borderColor: "rgba(201, 169, 97, 0.3)",
+                }}
+              >
+                <tr>
+                  <th className="text-left py-4 px-6 text-sm font-medium text-yellow-200">User</th>
+                  <th className="text-left py-4 px-6 text-sm font-medium text-yellow-200">Email</th>
+                  <th className="text-left py-4 px-6 text-sm font-medium text-yellow-200">Requested</th>
+                  <th className="text-right py-4 px-6 text-sm font-medium text-yellow-200">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adminRequests.map((u: any, index) => (
+                  <motion.tr
+                    key={u.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="border-b transition-colors"
+                    style={{ borderColor: "rgba(201, 169, 97, 0.2)" }}
+                  >
+                    <td className="py-4 px-6 text-yellow-100">{u.name}</td>
+                    <td className="py-4 px-6 text-purple-200/70">{u.email}</td>
+                    <td className="py-4 px-6 text-purple-200/70">{String(u.createdAt)}</td>
+                    <td className="py-4 px-6">
+                      <div className="flex items-center justify-end gap-2">
+                        <motion.button
+                          onClick={async () => {
+                            try {
+                              await apiFetch(`/api/admin/admin-requests/${u.id}/approve`, { method: "POST", token: token || undefined });
+                              setAdminRequests((prev) => prev.filter((x) => x.id !== u.id));
+                              toast.success("Admin request approved");
+                            } catch (e: any) {
+                              toast.error(e?.message || "Failed");
+                            }
+                          }}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          className="p-2 text-white rounded-lg transition-colors shadow-md"
+                          style={{ background: "#10b981" }}
+                          title="Approve"
+                        >
+                          <CheckCircle size={16} />
+                        </motion.button>
+                        <motion.button
+                          onClick={async () => {
+                            try {
+                              await apiFetch(`/api/admin/admin-requests/${u.id}/deny`, { method: "POST", token: token || undefined });
+                              setAdminRequests((prev) => prev.filter((x) => x.id !== u.id));
+                              toast.info("Admin request denied");
+                            } catch (e: any) {
+                              toast.error(e?.message || "Failed");
+                            }
+                          }}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          className="p-2 text-white rounded-lg transition-colors shadow-md"
+                          style={{ background: "#ef4444" }}
+                          title="Deny"
+                        >
+                          <XCircle size={16} />
+                        </motion.button>
+                      </div>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full">
             <thead 
               className="border-b"
               style={{ 
@@ -169,7 +316,7 @@ export function AdminRequests() {
               </tr>
             </thead>
             <tbody>
-              {filteredRequests.map((request, index) => (
+              {filteredReservations.map((request, index) => (
                 <motion.tr
                   key={request.id}
                   initial={{ opacity: 0 }}
@@ -201,7 +348,7 @@ export function AdminRequests() {
                   </td>
                   <td className="py-4 px-6">
                     <p className="text-sm text-purple-200/70">
-                      {formatDate(request.requestedAt)}
+                      {formatDate(new Date(request.requestedAt))}
                     </p>
                   </td>
                   <td className="py-4 px-6">
@@ -209,7 +356,7 @@ export function AdminRequests() {
                       <div className="flex items-center gap-1">
                         <Clock size={14} className="text-purple-200/60" />
                         <p className="text-sm text-purple-200/70">
-                          {formatDate(request.pickupDeadline)}
+                          {formatDate(new Date(request.pickupDeadline))}
                         </p>
                       </div>
                     ) : (
@@ -221,7 +368,7 @@ export function AdminRequests() {
                       {request.status === "pending" && (
                         <>
                           <motion.button
-                            onClick={() => handleApprove(request.id)}
+                            onClick={() => handleApprove(Number(request.id))}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             className="p-2 text-white rounded-lg transition-colors shadow-md"
@@ -231,7 +378,7 @@ export function AdminRequests() {
                             <CheckCircle size={16} />
                           </motion.button>
                           <motion.button
-                            onClick={() => handleDeny(request.id)}
+                            onClick={() => handleDeny(Number(request.id))}
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                             className="p-2 text-white rounded-lg transition-colors shadow-md"
@@ -242,9 +389,9 @@ export function AdminRequests() {
                           </motion.button>
                         </>
                       )}
-                      {request.status === "ready" && (
+                      {request.status === "approved" && (
                         <motion.button
-                          onClick={() => handleConfirmPickup(request.id)}
+                          onClick={() => handleConfirmPickup(Number(request.id))}
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           className="px-4 py-2 text-white rounded-lg transition-colors text-sm shadow-md"
@@ -268,7 +415,8 @@ export function AdminRequests() {
               ))}
             </tbody>
           </table>
-          {filteredRequests.length === 0 && (
+          )}
+          {mode === "reservations" && filteredReservations.length === 0 && (
             <div className="py-12 text-center">
               <p className="text-purple-200/70">
                 No requests found with the selected filters

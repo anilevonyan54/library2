@@ -1,42 +1,70 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Filter, CheckCircle, AlertTriangle, Calendar, Sparkles } from "lucide-react";
-import { mockLoans, Loan } from "@/app/data/mock-data";
 import { toast } from "sonner";
+import { useAuth } from "@/app/context/auth-context";
+import { apiFetch } from "@/app/api/client";
 
 export function AdminLoans() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [loans, setLoans] = useState(mockLoans);
+  const [loans, setLoans] = useState<any[]>([]);
+  const { token } = useAuth();
 
-  const filteredLoans = loans.filter((loan) => {
-    if (filterStatus === "all") return true;
-    if (filterStatus === "active") return !loan.isOverdue;
-    if (filterStatus === "overdue") return loan.isOverdue;
-    return true;
-  });
-
-  const handleMarkReturned = (id: string) => {
-    setLoans((prev) => prev.filter((l) => l.id !== id));
-    toast.success("Book marked as returned!");
+  const loadLoans = async () => {
+    try {
+      const res = await apiFetch<any[]>(`/api/admin/loans?status=${encodeURIComponent(filterStatus)}`, {
+        token: token || undefined,
+      });
+      setLoans(res);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load loans");
+      setLoans([]);
+    }
   };
 
-  const handleExtendDueDate = (id: string) => {
-    setLoans((prev) =>
-      prev.map((l) =>
-        l.id === id
-          ? {
-              ...l,
-              dueDate: new Date(l.dueDate.getTime() + 7 * 24 * 60 * 60 * 1000),
-            }
-          : l
-      )
-    );
-    toast.success("Due date extended by 7 days");
+  useEffect(() => {
+    loadLoans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, filterStatus]);
+
+  const now = Date.now();
+  const enrichedLoans = useMemo(() => {
+    return loans.map((l) => {
+      const due = new Date(l.dueDate).getTime();
+      const returnedAt = l.returnedAt ? new Date(l.returnedAt).getTime() : null;
+      const isOverdue = !returnedAt && (l.status === "active" || l.status === "extended") && due < now;
+      return { ...l, isOverdue, dueDateObj: new Date(l.dueDate) };
+    });
+  }, [loans, now]);
+
+  const handleMarkReturned = async (id: number) => {
+    try {
+      await apiFetch(`/api/loans/${id}/return`, { method: "POST", token: token || undefined });
+      toast.success("Book marked as returned!");
+      await loadLoans();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to mark returned");
+    }
   };
 
-  const handleMarkLost = (id: string) => {
-    setLoans((prev) => prev.filter((l) => l.id !== id));
-    toast.info("Book marked as lost");
+  const handleExtendDueDate = async (id: number) => {
+    try {
+      await apiFetch(`/api/loans/${id}/extend`, { method: "POST", token: token || undefined });
+      toast.success("Due date extended by 7 days");
+      await loadLoans();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to extend");
+    }
+  };
+
+  const handleMarkLost = async (id: number) => {
+    try {
+      await apiFetch(`/api/loans/${id}/mark-lost`, { method: "POST", token: token || undefined });
+      toast.info("Book marked as lost");
+      await loadLoans();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to mark lost");
+    }
   };
 
   const getDaysRemaining = (dueDate: Date) => {
@@ -79,7 +107,7 @@ export function AdminLoans() {
         >
           <p className="text-sm text-purple-200/70 mb-1">Active Loans</p>
           <p className="text-3xl font-bold text-yellow-200">
-            {loans.filter((l) => !l.isOverdue).length}
+            {enrichedLoans.filter((l) => !l.isOverdue && (l.status === "active" || l.status === "extended")).length}
           </p>
         </motion.div>
         <motion.div
@@ -94,7 +122,7 @@ export function AdminLoans() {
         >
           <p className="text-sm text-purple-200/70 mb-1">Overdue</p>
           <p className="text-3xl font-bold text-red-300">
-            {loans.filter((l) => l.isOverdue).length}
+            {enrichedLoans.filter((l) => l.isOverdue).length}
           </p>
         </motion.div>
         <motion.div
@@ -110,8 +138,8 @@ export function AdminLoans() {
           <p className="text-sm text-purple-200/70 mb-1">Due This Week</p>
           <p className="text-3xl font-bold text-amber-300">
             {
-              loans.filter((l) => {
-                const days = getDaysRemaining(l.dueDate);
+              enrichedLoans.filter((l) => {
+                const days = getDaysRemaining(new Date(l.dueDate));
                 return days >= 0 && days <= 7;
               }).length
             }
@@ -199,8 +227,8 @@ export function AdminLoans() {
               </tr>
             </thead>
             <tbody>
-              {filteredLoans.map((loan, index) => {
-                const daysRemaining = getDaysRemaining(loan.dueDate);
+              {enrichedLoans.map((loan, index) => {
+                const daysRemaining = getDaysRemaining(new Date(loan.dueDate));
                 return (
                   <motion.tr
                     key={loan.id}
@@ -220,25 +248,26 @@ export function AdminLoans() {
                     </td>
                     <td className="py-4 px-6">
                       <div>
-                        <p className="text-sm font-medium text-yellow-100">{loan.book.title}</p>
+                        <p className="text-sm font-medium text-yellow-100">{loan.bookTitle}</p>
                         <p className="text-xs text-purple-200/60">
-                          {loan.book.author}
+                          {loan.bookAuthor}
                         </p>
                       </div>
                     </td>
                     <td className="py-4 px-6">
-                      <p className="text-sm text-yellow-100">User #{loan.id.slice(-2)}</p>
+                      <div>
+                        <p className="text-sm text-yellow-100">{loan.userName}</p>
+                        <p className="text-xs text-purple-200/60">{loan.userEmail}</p>
+                      </div>
                     </td>
                     <td className="py-4 px-6">
                       <p className="text-sm text-purple-200/70">
-                        {formatDate(
-                          new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
-                        )}
+                        {loan.borrowedAt ? formatDate(new Date(loan.borrowedAt)) : "-"}
                       </p>
                     </td>
                     <td className="py-4 px-6">
                       <p className="text-sm text-purple-200/70">
-                        {formatDate(loan.dueDate)}
+                        {formatDate(new Date(loan.dueDate))}
                       </p>
                     </td>
                     <td className="py-4 px-6">
@@ -277,7 +306,7 @@ export function AdminLoans() {
                             }}
                           >
                             <CheckCircle size={12} />
-                            Active
+                            {loan.status}
                           </span>
                         )}
                       </div>
@@ -285,7 +314,7 @@ export function AdminLoans() {
                     <td className="py-4 px-6">
                       <div className="flex items-center justify-end gap-2">
                         <motion.button
-                          onClick={() => handleMarkReturned(loan.id)}
+                          onClick={() => handleMarkReturned(Number(loan.id))}
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           className="px-3 py-1 text-white rounded-lg transition-colors text-sm shadow-md"
@@ -294,7 +323,7 @@ export function AdminLoans() {
                           Mark Returned
                         </motion.button>
                         <motion.button
-                          onClick={() => handleExtendDueDate(loan.id)}
+                          onClick={() => handleExtendDueDate(Number(loan.id))}
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           className="px-3 py-1 text-white rounded-lg transition-colors text-sm shadow-md"
@@ -303,7 +332,7 @@ export function AdminLoans() {
                           Extend
                         </motion.button>
                         <motion.button
-                          onClick={() => handleMarkLost(loan.id)}
+                          onClick={() => handleMarkLost(Number(loan.id))}
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           className="px-3 py-1 text-white rounded-lg transition-colors text-sm shadow-md"
@@ -318,7 +347,7 @@ export function AdminLoans() {
               })}
             </tbody>
           </table>
-          {filteredLoans.length === 0 && (
+          {enrichedLoans.length === 0 && (
             <div className="py-12 text-center">
               <p className="text-purple-200/70">
                 No loans found with the selected filters

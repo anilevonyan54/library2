@@ -127,3 +127,4 @@ C:\Users\HP\Downloads\Cozy Library App Design\LibraryBackend\obj\Debug\net8.0\re
 C:\Users\HP\Downloads\Cozy Library App Design\LibraryBackend\obj\Debug\net8.0\LibraryBackend.pdb
 C:\Users\HP\Downloads\Cozy Library App Design\LibraryBackend\obj\Debug\net8.0\LibraryBackend.genruntimeconfig.cache
 C:\Users\HP\Downloads\Cozy Library App Design\LibraryBackend\obj\Debug\net8.0\ref\LibraryBackend.dll
+C:\Users\HP\Downloads\Cozy Library App Design\LibraryBackend\obj\Debug\net8.0\LibraryBackend.sourcelink.json

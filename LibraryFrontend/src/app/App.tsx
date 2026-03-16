@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Header } from "@/app/components/header";
 import { HeroSection } from "@/app/components/hero-section";
 import { BookCatalog } from "@/app/components/book-catalog";
@@ -13,21 +13,37 @@ import { AdminRequests } from "@/app/components/admin/admin-requests";
 import { AdminLoans } from "@/app/components/admin/admin-loans";
 import { AdminUsers } from "@/app/components/admin/admin-users";
 import { AdminBooks } from "@/app/components/admin/admin-books";
-import { mockBooks, Book } from "@/app/data/mock-data";
+import { Book } from "@/app/data/mock-data";
 import { toast, Toaster } from "sonner";
 import { AuthProvider, useAuth } from "@/app/context/auth-context";
 import { motion } from "motion/react";
+import { apiFetch } from "@/app/api/client";
+import { mapApiBookToUiBook, type ApiBook } from "@/app/lib/book-mapper";
 
 function AppContent() {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, logout, token } = useAuth();
   const [currentPage, setCurrentPage] = useState<"home" | "loans" | "recommendations">("home");
   const [adminPage, setAdminPage] = useState<"dashboard" | "requests" | "loans" | "books" | "users" | "reports" | "settings">("dashboard");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedGenre, setSelectedGenre] = useState("all");
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
+  const [books, setBooks] = useState<Book[]>([]);
+
+  // Load books from backend
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const apiBooks = await apiFetch<ApiBook[]>("/api/books");
+        setBooks(apiBooks.map(mapApiBookToUiBook));
+      } catch {
+        // If backend is down, keep empty; UI will show empty state
+        setBooks([]);
+      }
+    })();
+  }, []);
 
   // Filter books based on search query and genre
-  const filteredBooks = mockBooks.filter((book) => {
+  const filteredBooks = books.filter((book) => {
     const query = searchQuery.toLowerCase();
     const matchesSearch =
       book.title.toLowerCase().includes(query) ||
@@ -46,15 +62,20 @@ function AppContent() {
       return;
     }
 
-    if (book.available > 0) {
-      toast.success(`Reserved "${book.title}"! Pick it up within 24 hours.`, {
-        description: "You can view your reservations in My Loans.",
-      });
-    } else {
-      toast.info(`Joined the queue for "${book.title}"`, {
-        description: "We'll notify you when it becomes available.",
-      });
-    }
+    (async () => {
+      try {
+        await apiFetch("/api/reservations", {
+          method: "POST",
+          token: token || undefined,
+          body: JSON.stringify({ bookId: Number(book.id) }),
+        });
+        toast.success(`Reservation requested for "${book.title}"`, {
+          description: "Waiting for admin approval.",
+        });
+      } catch (e: any) {
+        toast.error(e?.message || "Failed to reserve book");
+      }
+    })();
   };
 
   const handleLogout = () => {
@@ -224,6 +245,7 @@ function AppContent() {
 
       {currentPage === "recommendations" && (
         <RecommendationsPage
+          books={books}
           onViewDetails={setSelectedBook}
           onReserve={handleReserve}
         />

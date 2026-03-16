@@ -30,31 +30,38 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [desiredRole, setDesiredRole] = useState<"user" | "admin">("user");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const { login, register } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanedEmail = email.trim();
+    const cleanedPassword = password;
 
     if (isLogin) {
-      const success = login(email, password);
-      if (success) {
+      const result = await login(cleanedEmail, cleanedPassword);
+      if (result.ok) {
         toast.success("Welcome back to Smart Library!");
         onSuccess();
       } else {
-        toast.error("Invalid email or password");
+        toast.error(result.error);
       }
     } else {
       if (!name.trim()) {
         toast.error("Please enter your name");
         return;
       }
-      const success = register(name, email, password);
-      if (success) {
-        toast.success("Welcome to Smart Library!");
+      const result = await register(name.trim(), cleanedEmail, cleanedPassword, desiredRole);
+      if (result.ok) {
+        toast.success(
+          desiredRole === "admin"
+            ? "Account created. Admin access requires approval by the main admin."
+            : "Welcome to Smart Library!"
+        );
         onSuccess();
       } else {
-        toast.error("User already exists with this email");
+        toast.error(result.error);
       }
     }
   };
@@ -410,7 +417,7 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             className="w-full pl-11 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:border-purple-600 focus:outline-none transition-colors bg-white/80"
-                            placeholder="wizard@hogwarts.edu"
+                            placeholder="you@example.com"
                             required
                           />
                         </div>
@@ -509,7 +516,7 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             className="w-full pl-11 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:border-purple-600 focus:outline-none transition-colors bg-white/80 backdrop-blur-sm"
-                            placeholder="wizard@hogwarts.edu"
+                            placeholder="Email or username"
                             required
                           />
                         </div>
@@ -540,12 +547,50 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             className="w-full pl-11 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:border-purple-600 focus:outline-none transition-colors bg-white/80 backdrop-blur-sm"
-                            placeholder="••••••••"
+                            placeholder="Password"
                             required
                             minLength={6}
                           />
                         </div>
                       </div>
+
+                      {!isLogin && (
+                        <div>
+                          <label className="block text-sm mb-2 text-gray-800">
+                            Account type
+                          </label>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setDesiredRole("user")}
+                              className={`flex-1 py-2.5 rounded-lg transition-all duration-300 ${
+                                desiredRole === "user"
+                                  ? "text-white shadow-lg"
+                                  : "text-gray-700 hover:bg-white/30"
+                              }`}
+                              style={desiredRole === "user" ? {
+                                background: 'linear-gradient(135deg, #2D1B4E 0%, #1E3A5F 100%)',
+                              } : { background: 'rgba(139, 107, 71, 0.15)' }}
+                            >
+                              General user
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDesiredRole("admin")}
+                              className={`flex-1 py-2.5 rounded-lg transition-all duration-300 ${
+                                desiredRole === "admin"
+                                  ? "text-white shadow-lg"
+                                  : "text-gray-700 hover:bg-white/30"
+                              }`}
+                              style={desiredRole === "admin" ? {
+                                background: 'linear-gradient(135deg, #2D1B4E 0%, #1E3A5F 100%)',
+                              } : { background: 'rgba(139, 107, 71, 0.15)' }}
+                            >
+                              Admin (needs approval)
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       <motion.button
                         type="submit"
@@ -569,18 +614,6 @@ export function AuthPage({ onSuccess }: AuthPageProps) {
                       </motion.button>
                     </form>
 
-                    {/* Demo Credentials */}
-                    <div className="mt-6 p-4 rounded-lg border-2 border-yellow-700/30" style={{ background: 'rgba(201, 169, 97, 0.15)' }}>
-                      <p className="text-xs text-gray-700 mb-2">
-                        <strong>🔑 Demo Credentials:</strong>
-                      </p>
-                      <p className="text-xs text-gray-600 mb-1">
-                        User: alice.johnson@example.com / password123
-                      </p>
-                      <p className="text-xs text-gray-600">
-                        Admin: charlie.brown@example.com / admin789
-                      </p>
-                    </div>
                   </>
                 )}
               </div>

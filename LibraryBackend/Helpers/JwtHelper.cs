@@ -26,8 +26,9 @@ public class JwtHelper
 
     public string GenerateToken(User user)
     {
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.SecretKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var keyBytes = Encoding.UTF8.GetBytes(_settings.SecretKey);
+        var securityKey = new SymmetricSecurityKey(keyBytes);
+        var creds = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
         var claims = new List<Claim>
         {
@@ -37,6 +38,19 @@ public class JwtHelper
             new(ClaimTypes.Name, user.Name),
             new(ClaimTypes.Role, user.Role)
         };
+
+        if (user.AdminLevel >= 1)
+        {
+            if (!claims.Any(c => c.Type == ClaimTypes.Role && c.Value == "admin"))
+            {
+                claims.Add(new Claim(ClaimTypes.Role, "admin"));
+            }
+        }
+
+        if (user.AdminLevel >= 2)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, "superadmin"));
+        }
 
         var token = new JwtSecurityToken(
             issuer: _settings.Issuer,

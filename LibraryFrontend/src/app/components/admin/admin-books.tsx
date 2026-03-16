@@ -1,8 +1,26 @@
 import { motion } from "motion/react";
 import { BookOpen, Plus, Search, Sparkles } from "lucide-react";
-import { mockBooks } from "@/app/data/mock-data";
+import { useEffect, useState } from "react";
+import { apiFetch } from "@/app/api/client";
+import { useAuth } from "@/app/context/auth-context";
+import type { ApiBook } from "@/app/lib/book-mapper";
+import { mapApiBookToUiBook } from "@/app/lib/book-mapper";
 
 export function AdminBooks() {
+  const { token } = useAuth();
+  const [books, setBooks] = useState<any[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const apiBooks = await apiFetch<ApiBook[]>("/api/books", { token: token || undefined });
+        setBooks(apiBooks.map(mapApiBookToUiBook));
+      } catch {
+        setBooks([]);
+      }
+    })();
+  }, [token]);
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -94,7 +112,7 @@ export function AdminBooks() {
               </tr>
             </thead>
             <tbody>
-              {mockBooks.map((book, index) => (
+              {books.map((book, index) => (
                 <motion.tr
                   key={book.id}
                   initial={{ opacity: 0 }}

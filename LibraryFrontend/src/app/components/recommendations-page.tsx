@@ -1,23 +1,42 @@
 import { motion } from "motion/react";
 import { Heart, Sparkles, TrendingUp } from "lucide-react";
-import { mockBooks, Book } from "@/app/data/mock-data";
+import { Book } from "@/app/data/mock-data";
 import { BookCard } from "./book-card";
+import { useAuth } from "@/app/context/auth-context";
+import { apiFetch } from "@/app/api/client";
+import { mapApiBookToUiBook, type ApiBook } from "@/app/lib/book-mapper";
+import { useEffect, useState } from "react";
 
 interface RecommendationsPageProps {
   onViewDetails: (book: Book) => void;
   onReserve: (book: Book) => void;
+  books: Book[];
 }
 
 export function RecommendationsPage({
   onViewDetails,
   onReserve,
+  books,
 }: RecommendationsPageProps) {
-  // Get recommendations based on availability and tags
-  const availableNow = mockBooks.filter((book) => book.available > 0).slice(0, 4);
-  const fantasyBooks = mockBooks
-    .filter((book) => book.tags.some((tag) => tag.includes("fantasy") || tag.includes("sci-fi")))
-    .slice(0, 4);
-  const popularBooks = mockBooks.slice(0, 4);
+  const { token } = useAuth();
+  const [recommended, setRecommended] = useState<Book[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const apiBooks = await apiFetch<ApiBook[]>("/api/nlp/recommendations/me", {
+          token: token || undefined,
+        });
+        setRecommended(apiBooks.map(mapApiBookToUiBook));
+      } catch {
+        setRecommended([]);
+      }
+    })();
+  }, [token]);
+
+  const availableNow = books.filter((book) => book.available > 0).slice(0, 4);
+  const similar = recommended.slice(0, 4);
+  const popularBooks = books.slice(0, 4);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-12">
@@ -75,7 +94,7 @@ export function RecommendationsPage({
           📚 Based on tags match — You enjoyed fantasy and sci-fi before
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {fantasyBooks.map((book, index) => (
+          {similar.map((book, index) => (
             <motion.div
               key={book.id}
               initial={{ opacity: 0, y: 20 }}

@@ -33,22 +33,13 @@ public class ReservationsController : ControllerBase
         {
             UserId = userId,
             BookId = req.BookId,
-            RequestedAt = DateTime.UtcNow
+            RequestedAt = DateTime.UtcNow,
+            Status = "pending"
         };
 
-        if (book.AvailableCopies > 0)
-        {
-            reservation.Status = "ready";
-            reservation.QueuePosition = 0;
-            reservation.PickupDeadline = DateTime.UtcNow.AddDays(3);
-        }
-        else
-        {
-            reservation.Status = "queued";
-            var queueCount = await _db.Reservations
-                .CountAsync(r => r.BookId == req.BookId && r.Status == "queued");
-            reservation.QueuePosition = queueCount + 1;
-        }
+        var queueCount = await _db.Reservations
+            .CountAsync(r => r.BookId == req.BookId && (r.Status == "pending" || r.Status == "approved"));
+        reservation.QueuePosition = queueCount + 1;
 
         _db.Reservations.Add(reservation);
         await _db.SaveChangesAsync();
@@ -66,20 +57,72 @@ public class ReservationsController : ControllerBase
         return reservations;
     }
 
+    [HttpGet("me")]
+    public async Task<ActionResult<IEnumerable<Reservation>>> GetMyReservations()
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var reservations = await _db.Reservations
+            .Include(r => r.Book)
+            .Where(r => r.UserId == userId)
+            .OrderByDescending(r => r.RequestedAt)
+            .ToListAsync();
+        return reservations;
+    }
+
     [HttpPost("{id:int}/approve")]
     [Authorize(Roles = "admin")]
     public async Task<IActionResult> Approve(int id)
     {
         var reservation = await _db.Reservations.Include(r => r.Book).FirstOrDefaultAsync(r => r.Id == id);
         if (reservation == null) return NotFound();
-        if (reservation.Status != "ready" && reservation.Status != "queued")
-            return BadRequest("Reservation not approvable");
+        if (reservation.Status != "pending")
+            return BadRequest("Only pending reservations can be approved");
 
-        var book = reservation.Book;
-        if (book.AvailableCopies <= 0)
-            return BadRequest("No available copies");
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-        book.AvailableCopies -= 1;
+        reservation.Status = "approved";
+        reservation.DecidedByAdminId = adminId;
+        reservation.DecidedAt = DateTime.UtcNow;
+
+        if (reservation.Book.AvailableCopies > 0)
+        {
+            reservation.PickupDeadline = DateTime.UtcNow.AddDays(2);
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Reservation approved" });
+    }
+
+    [HttpPost("{id:int}/deny")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> Deny(int id)
+    {
+        var reservation = await _db.Reservations.FirstOrDefaultAsync(r => r.Id == id);
+        if (reservation == null) return NotFound();
+        if (reservation.Status != "pending")
+            return BadRequest("Only pending reservations can be denied");
+
+        var adminId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        reservation.Status = "denied";
+        reservation.DecidedByAdminId = adminId;
+        reservation.DecidedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Reservation denied" });
+    }
+
+    [HttpPost("{id:int}/confirm-pickup")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> ConfirmPickup(int id)
+    {
+        var reservation = await _db.Reservations.Include(r => r.Book).FirstOrDefaultAsync(r => r.Id == id);
+        if (reservation == null) return NotFound();
+        if (reservation.Status != "approved")
+            return BadRequest("Only approved reservations can be picked up");
+
+        if (reservation.Book.AvailableCopies <= 0)
+            return BadRequest("No available copies to create a loan");
+
+        reservation.Book.AvailableCopies -= 1;
 
         var loan = new Loan
         {
@@ -91,12 +134,9 @@ public class ReservationsController : ControllerBase
         };
 
         reservation.Status = "fulfilled";
-        reservation.PickupDeadline = DateTime.UtcNow;
-
-        _db.Loans.Add(loan);
+        await _db.Loans.AddAsync(loan);
         await _db.SaveChangesAsync();
-
-        return Ok();
+        return Ok(new { message = "Loan created" });
     }
 }
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import {
   Search,
@@ -9,48 +9,27 @@ import {
   X,
   Sparkles,
 } from "lucide-react";
-import {
-  mockUsers,
-  mockAdminNotes,
-  mockUserStats,
-  User,
-  AdminNote,
-} from "@/app/data/mock-data";
 import { toast } from "sonner";
+import { apiFetch } from "@/app/api/client";
+import { useAuth } from "@/app/context/auth-context";
 
 export function AdminUsers() {
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [reviewRating, setReviewRating] = useState<
-    "excellent" | "good" | "warning" | "bad"
-  >("good");
-  const [reviewNote, setReviewNote] = useState("");
-  const [reviewTags, setReviewTags] = useState<string[]>([]);
+  const { token } = useAuth();
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [users, setUsers] = useState<any[]>([]);
+  const [query, setQuery] = useState("");
 
-  const handleAddReview = () => {
-    if (!selectedUser || !reviewNote.trim()) {
-      toast.error("Please enter a review note");
-      return;
-    }
-
-    const newReview: AdminNote = {
-      id: `an${mockAdminNotes.length + 1}`,
-      userId: selectedUser.id,
-      adminId: "u3", // Current admin
-      loanId: "l1", // Mock loan ID
-      rating: reviewRating,
-      note: reviewNote,
-      tags: reviewTags,
-      date: new Date(),
-    };
-
-    mockAdminNotes.push(newReview);
-    toast.success("Review added successfully!");
-    setShowReviewModal(false);
-    setReviewNote("");
-    setReviewTags([]);
-    setReviewRating("good");
-  };
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch<any[]>("/api/admin/users", { token: token || undefined });
+        setUsers(res);
+      } catch (e: any) {
+        toast.error(e?.message || "Failed to load users");
+        setUsers([]);
+      }
+    })();
+  }, [token]);
 
   const getReliabilityColor = (score: number) => {
     if (score >= 90) return "text-green-600";
@@ -66,7 +45,14 @@ export function AdminUsers() {
     return "Poor";
   };
 
-  const regularUsers = mockUsers.filter((u) => u.role === "user");
+  const filteredUsers = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) =>
+      String(u.name || "").toLowerCase().includes(q) ||
+      String(u.email || "").toLowerCase().includes(q)
+    );
+  }, [users, query]);
 
   return (
     <div className="space-y-6">
@@ -97,6 +83,8 @@ export function AdminUsers() {
           <input
             type="text"
             placeholder="Search users by name or email..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             className="w-full pl-12 pr-4 py-3 border-2 rounded-lg focus:outline-none focus:border-yellow-600 transition-colors backdrop-blur-sm"
             style={{
               background: "rgba(244, 232, 208, 0.95)",
@@ -109,8 +97,7 @@ export function AdminUsers() {
 
       {/* Users Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {regularUsers.map((user, index) => {
-          const stats = mockUserStats[index % mockUserStats.length];
+        {filteredUsers.map((user, index) => {
           return (
             <motion.div
               key={user.id}
@@ -139,29 +126,33 @@ export function AdminUsers() {
                   <div>
                     <h3 className="font-medium text-yellow-100">{user.name}</h3>
                     <p className="text-xs text-purple-200/60">{user.email}</p>
+                    <p className="text-xs text-purple-200/60">
+                      Role: {user.role}{user.adminLevel === 2 ? " (super admin)" : user.adminLevel === 1 ? " (admin)" : ""}
+                    </p>
                   </div>
                 </div>
               </div>
 
               <div
-                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${getReliabilityColor(
-                  stats.reliabilityScore
-                )} bg-current/10`}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium text-yellow-100 bg-white/10"
               >
                 <Award size={14} />
-                {getReliabilityLabel(stats.reliabilityScore)} (
-                {stats.reliabilityScore})
+                {user.adminRequestStatus === "pending"
+                  ? "Admin request pending"
+                  : user.adminRequestStatus === "denied"
+                  ? "Admin request denied"
+                  : "Active"}
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <p className="text-purple-200/60">Total Loans</p>
-                  <p className="font-medium text-yellow-100">{stats.totalLoans}</p>
+                  <p className="text-purple-200/60">User ID</p>
+                  <p className="font-medium text-yellow-100">{user.id}</p>
                 </div>
                 <div>
-                  <p className="text-purple-200/60">Late Returns</p>
+                  <p className="text-purple-200/60">Created</p>
                   <p className="font-medium text-yellow-100">
-                    {stats.lateReturns}
+                    {user.createdAt ? String(user.createdAt).slice(0, 10) : "-"}
                   </p>
                 </div>
               </div>
@@ -225,242 +216,19 @@ export function AdminUsers() {
 
             {/* Modal Content */}
             <div className="p-6 space-y-6">
-              {/* User Stats */}
-              <div>
-                <h3 className="text-lg font-medium mb-3 flex items-center gap-2 text-gray-800">
-                  <Award className="text-yellow-700" size={20} />
-                  User Statistics
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {[
-                    { label: "Total Loans", value: 5 },
-                    { label: "Late Returns", value: 1 },
-                    { label: "Avg Delay", value: "1.2 days" },
-                    { label: "Cancellations", value: 0 },
-                  ].map((stat) => (
-                    <div
-                      key={stat.label}
-                      className="rounded-lg p-4"
-                      style={{
-                        background: "rgba(139, 107, 71, 0.15)",
-                      }}
-                    >
-                      <p className="text-sm text-gray-600 mb-1">
-                        {stat.label}
-                      </p>
-                      <p className="text-xl font-bold text-gray-800">
-                        {stat.value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+              <div className="rounded-lg p-4" style={{ background: "rgba(139, 107, 71, 0.15)" }}>
+                <p className="text-sm text-gray-700 mb-1">Role</p>
+                <p className="text-lg font-semibold text-gray-900">{selectedUser.role}</p>
+                <p className="text-sm text-gray-700 mt-3 mb-1">Admin request status</p>
+                <p className="text-gray-900">{selectedUser.adminRequestStatus}</p>
               </div>
 
-              {/* Admin Notes/Reviews */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-lg font-medium flex items-center gap-2 text-gray-800">
-                    <BookOpen className="text-yellow-700" size={20} />
-                    Admin Reviews
-                  </h3>
-                  <motion.button
-                    onClick={() => setShowReviewModal(true)}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="px-4 py-2 text-white rounded-lg transition-colors text-sm shadow-md"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #2D1B4E 0%, #1E3A5F 100%)",
-                    }}
-                  >
-                    Add Review
-                  </motion.button>
-                </div>
-                <div className="space-y-3">
-                  {mockAdminNotes
-                    .filter((note) => note.userId === selectedUser.id)
-                    .map((note) => (
-                      <div
-                        key={note.id}
-                        className="rounded-lg p-4 border-l-4"
-                        style={{
-                          background: "rgba(139, 107, 71, 0.15)",
-                          borderColor: "#8B6B47",
-                        }}
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-medium ${
-                              note.rating === "excellent"
-                                ? "bg-green-100 text-green-800"
-                                : note.rating === "good"
-                                ? "bg-blue-100 text-blue-800"
-                                : note.rating === "warning"
-                                ? "bg-amber-100 text-amber-800"
-                                : "bg-red-100 text-red-800"
-                            }`}
-                          >
-                            {note.rating.charAt(0).toUpperCase() +
-                              note.rating.slice(1)}
-                          </span>
-                          <span className="text-xs text-gray-600">
-                            {note.date.toLocaleDateString()}
-                          </span>
-                        </div>
-                        <p className="text-sm mb-2 text-gray-800">{note.note}</p>
-                        <div className="flex gap-2">
-                          {note.tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="px-2 py-1 rounded text-xs"
-                              style={{
-                                background: "rgba(139, 107, 71, 0.2)",
-                                color: "#5A4A31",
-                              }}
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                </div>
+              <div className="rounded-lg p-4" style={{ background: "rgba(139, 107, 71, 0.15)" }}>
+                <p className="text-sm text-gray-700 mb-1">Note</p>
+                <p className="text-sm text-gray-800">
+                  This page now shows real users from PostgreSQL. (Admin notes UI is not wired yet.)
+                </p>
               </div>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-
-      {/* Add Review Modal */}
-      {showReviewModal && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
-          onClick={() => setShowReviewModal(false)}
-        >
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="rounded-2xl shadow-2xl max-w-md w-full p-6"
-            style={{
-              background: "rgba(244, 232, 208, 0.98)",
-              border: "1px solid rgba(201, 169, 97, 0.5)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-xl font-semibold mb-4 text-gray-800">
-              Add Admin Review
-            </h3>
-
-            {/* Rating */}
-            <div className="mb-4">
-              <label className="block text-sm mb-2 text-gray-700">Rating</label>
-              <select
-                value={reviewRating}
-                onChange={(e) =>
-                  setReviewRating(
-                    e.target.value as "excellent" | "good" | "warning" | "bad"
-                  )
-                }
-                className="w-full px-4 py-2 border-2 rounded-lg focus:outline-none focus:border-yellow-600"
-                style={{
-                  background: "rgba(255, 255, 255, 0.8)",
-                  borderColor: "rgba(139, 107, 71, 0.3)",
-                  color: "#2C2C2C",
-                }}
-              >
-                <option value="excellent">Excellent</option>
-                <option value="good">Good</option>
-                <option value="warning">Warning</option>
-                <option value="bad">Bad</option>
-              </select>
-            </div>
-
-            {/* Note */}
-            <div className="mb-4">
-              <label className="block text-sm mb-2 text-gray-700">Note</label>
-              <textarea
-                value={reviewNote}
-                onChange={(e) => setReviewNote(e.target.value)}
-                className="w-full px-4 py-2 border-2 rounded-lg focus:outline-none focus:border-yellow-600 resize-none"
-                style={{
-                  background: "rgba(255, 255, 255, 0.8)",
-                  borderColor: "rgba(139, 107, 71, 0.3)",
-                  color: "#2C2C2C",
-                }}
-                rows={4}
-                placeholder="Add your review note..."
-              />
-            </div>
-
-            {/* Tags */}
-            <div className="mb-6">
-              <label className="block text-sm mb-2 text-gray-700">Tags</label>
-              <div className="flex flex-wrap gap-2">
-                {["on time", "late", "damaged", "perfect condition"].map(
-                  (tag) => (
-                    <motion.button
-                      key={tag}
-                      onClick={() =>
-                        setReviewTags((prev) =>
-                          prev.includes(tag)
-                            ? prev.filter((t) => t !== tag)
-                            : [...prev, tag]
-                        )
-                      }
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                        reviewTags.includes(tag)
-                          ? "text-white shadow-md"
-                          : "hover:bg-yellow-600/20"
-                      }`}
-                      style={
-                        reviewTags.includes(tag)
-                          ? {
-                              background:
-                                "linear-gradient(135deg, #8B6B47 0%, #C9A961 100%)",
-                            }
-                          : {
-                              background: "rgba(139, 107, 71, 0.15)",
-                              color: "#5A4A31",
-                            }
-                      }
-                    >
-                      {tag}
-                    </motion.button>
-                  )
-                )}
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3">
-              <motion.button
-                onClick={handleAddReview}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="flex-1 py-2 text-white rounded-lg transition-colors shadow-md"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #2D1B4E 0%, #1E3A5F 100%)",
-                }}
-              >
-                Save Review
-              </motion.button>
-              <motion.button
-                onClick={() => setShowReviewModal(false)}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="px-6 py-2 rounded-lg transition-colors"
-                style={{
-                  background: "rgba(139, 107, 71, 0.15)",
-                  color: "#5A4A31",
-                }}
-              >
-                Cancel
-              </motion.button>
             </div>
           </motion.div>
         </motion.div>
